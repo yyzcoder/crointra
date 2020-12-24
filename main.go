@@ -8,13 +8,20 @@ import (
 	"github.com/yyzcoder/crointra/util"
 	"github.com/yyzcoder/yyznet/channel"
 	"github.com/yyzcoder/yyznet/client"
+	"os"
+	"strings"
 	"sync"
 )
 
 var localTcpClientsLock sync.Mutex
 var localTcpClients map[int]*client.Tcp
-
+var busId = ""
 func init() {
+	busId = os.Args[1]
+	if strings.Trim(busId," ") == ""{
+		fmt.Println("busId can't be empty")
+		os.Exit(1)
+	}
 	localTcpClients = make(map[int]*client.Tcp, 0)
 }
 
@@ -29,7 +36,7 @@ func main() {
 		ChannelAddr: channelAddr,
 		ChannelPort: channelPort,
 	}
-	channelClient.On("CONNECT", func(data string) {
+	channelClient.On(busId+"CONNECT", func(data string) {
 		//fmt.Println("CONNECT")
 		yyzData := new(crointra_data.CrointraData)
 		if err := json.Unmarshal([]byte(data), yyzData); err != nil {
@@ -49,7 +56,7 @@ func main() {
 				Data:      base64.StdEncoding.EncodeToString(data),
 			}
 			jsonStr, _ := json.Marshal(ryyzData)
-			channelClient.Publish("RETURN", string(jsonStr))
+			channelClient.Publish(busId+"RETURN", string(jsonStr))
 		}
 
 		localTcp.OnClose = func() {
@@ -62,7 +69,7 @@ func main() {
 			localTcpClientsLock.Lock()
 			delete(localTcpClients, yyzData.ConnectId)
 			localTcpClientsLock.Unlock()
-			channelClient.Publish("SERVERCLOSE", string(jsonStr))
+			channelClient.Publish(busId+"SERVERCLOSE", string(jsonStr))
 		}
 		localTcpClientsLock.Lock()
 		localTcpClients[yyzData.ConnectId] = localTcp
@@ -72,7 +79,7 @@ func main() {
 		client.TcpWg.Wait()
 	})
 
-	channelClient.On("MESSAGE", func(data string) {
+	channelClient.On(busId+"MESSAGE", func(data string) {
 		//fmt.Printf("收到消息%d\n", len(data))
 		yyzData := new(crointra_data.CrointraData)
 		if err := json.Unmarshal([]byte(data), yyzData); err != nil {
@@ -91,7 +98,7 @@ func main() {
 		localTcp.Send(d)
 	})
 
-	channelClient.On("USERCLOSE", func(data string) {
+	channelClient.On(busId+"USERCLOSE", func(data string) {
 		//fmt.Printf("收到用户关闭%d\n", len(data))
 		yyzData := new(crointra_data.CrointraData)
 		if err := json.Unmarshal([]byte(data), yyzData); err != nil {

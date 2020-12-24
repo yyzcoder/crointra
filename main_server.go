@@ -10,6 +10,9 @@ import (
 	"github.com/yyzcoder/yyznet/protocol"
 	"github.com/yyzcoder/yyznet/server"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -17,9 +20,26 @@ var connectionsLock sync.Mutex
 var connections map[int]*server.Connect
 var channelClient channel.Client
 var remoteServerPort int
+var busId = ""
 
 func init() {
 
+	if os.Getppid()!=1{           //判断当其是否是子进程，当父进程return之后，子进程会被 系统1 号进程接管
+		filePath,_:=filepath.Abs(os.Args[0])  //将命令行参数中执行文件路径转换成可用路径
+		cmd:=exec.Command(filePath,os.Args[1:]...)
+		//将其他命令传入生成出的进程
+		cmd.Stdin=os.Stdin                               //给新进程设置文件描述符，可以重定向到文件中
+		cmd.Stdout=os.Stdout
+		cmd.Stderr=os.Stderr
+		cmd.Start()                                          //开始执行新进程，不等待新进程退出
+		os.Exit(1)
+	}
+
+	busId = os.Args[1]
+	if strings.Trim(busId," ") == ""{
+		fmt.Println("busId can't be empty")
+		os.Exit(1)
+	}
 	channelAddr, _, channelPort, _, remotePort, err := util.GetConf()
 	if err != nil {
 		fmt.Println("start fail:", err)
@@ -32,7 +52,7 @@ func init() {
 		ChannelAddr: channelAddr,
 		ChannelPort: channelPort,
 	}
-	channelClient.On("RETURN", func(data string) {
+	channelClient.On(busId+"RETURN", func(data string) {
 		//fmt.Println("RETURN")
 		yyzData := new(crointra_data.CrointraData)
 		if err := json.Unmarshal([]byte(data), yyzData); err != nil {
@@ -51,7 +71,7 @@ func init() {
 		}
 		connptr.Write(d)
 	})
-	channelClient.On("SERVERCLOSE", func(data string) {
+	channelClient.On(busId+"SERVERCLOSE", func(data string) {
 		//fmt.Println("SERVERCLOSE")
 		yyzData := new(crointra_data.CrointraData)
 		if err := json.Unmarshal([]byte(data), yyzData); err != nil {
@@ -97,7 +117,7 @@ func main() {
 		connectionsLock.Lock()
 		connections[conn.Id] = conn
 		connectionsLock.Unlock()
-		channelClient.Publish("CONNECT", string(jsonBytes))
+		channelClient.Publish(busId+"CONNECT", string(jsonBytes))
 	}
 	tcpServer.OnMessage = func(conn *server.Connect, data []byte) {
 		//fmt.Printf("有浏览器消息%d",len(data))
@@ -110,7 +130,7 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		channelClient.Publish("MESSAGE", string(jsonBytes))
+		channelClient.Publish(busId+"MESSAGE", string(jsonBytes))
 	}
 	tcpServer.OnClose = func(conn *server.Connect) {
 		yyzData := crointra_data.CrointraData{
@@ -124,7 +144,7 @@ func main() {
 		connectionsLock.Lock()
 		delete(connections, conn.Id)
 		connectionsLock.Unlock()
-		channelClient.Publish("USERCLOSE", string(jsonBytes))
+		channelClient.Publish(busId+"USERCLOSE", string(jsonBytes))
 	}
 	tcpServer.Run()
 	fmt.Println("程序结束")
